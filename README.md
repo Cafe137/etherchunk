@@ -10,6 +10,8 @@ npm install --global swarm-fs
 
 ## Usage
 
+See [Postage Batch Setup](docs/postage-batch-setup.md) for how to obtain `SWARMFS_SIGNER`, `SWARMFS_BATCH_ID`, and `SWARMFS_BATCH_DEPTH`.
+
 Environment variables can be set in your shell profile for global use, or in a local `.env` file if you prefer per-project configuration:
 
 ```sh
@@ -18,6 +20,7 @@ export SWARMFS_SIGNER="<private key hex>"
 export SWARMFS_BATCH_ID="<batch id hex>"
 export SWARMFS_BATCH_DEPTH=<depth of your batch>
 export SWARMFS_REDUNDANCY_LEVEL=0  # 0=none, 1=MEDIUM, 2=STRONG, 3=INSANE, 4=PARANOID
+export SWARMFS_PARALLELISM=32  # max chunks uploaded concurrently
 ```
 
 ```sh
@@ -32,6 +35,9 @@ swarm-fs upload <file|dir> --redundancy=1
 
 # Upload with both encryption and erasure coding
 swarm-fs upload <file|dir> --encrypt --redundancy=2
+
+# Upload with a custom number of chunks in flight at once (default 32)
+swarm-fs upload <file|dir> --parallelism=64
 
 # List all tracked files and manifests
 swarm-fs list

@@ -19,7 +19,8 @@ export class FileRegistry {
                 root_hash        BLOB NOT NULL,
                 chunks           BLOB NOT NULL,
                 kind             TEXT NOT NULL DEFAULT 'file',
-                redundancy_level INTEGER NOT NULL DEFAULT 0
+                redundancy_level INTEGER NOT NULL DEFAULT 0,
+                upload_date      INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_root_hash ON files(root_hash);
         `)
@@ -30,6 +31,9 @@ export class FileRegistry {
         if (!cols.some(c => c.name === 'redundancy_level')) {
             this.db.exec('ALTER TABLE files ADD COLUMN redundancy_level INTEGER NOT NULL DEFAULT 0')
         }
+        if (!cols.some(c => c.name === 'upload_date')) {
+            this.db.exec('ALTER TABLE files ADD COLUMN upload_date INTEGER')
+        }
     }
 
     list(): Array<{
@@ -38,29 +42,43 @@ export class FileRegistry {
         kind: EntryKind
         chunkCount: number
         redundancyLevel: number
+        uploadDate: number | null
     }> {
         const rows = this.db
-            .prepare('SELECT path, root_hash, kind, length(chunks) AS chunks_len, redundancy_level FROM files')
+            .prepare(
+                'SELECT path, root_hash, kind, length(chunks) AS chunks_len, redundancy_level, upload_date FROM files'
+            )
             .all() as Array<{
             path: string
             root_hash: Buffer
             kind: EntryKind
             chunks_len: number
             redundancy_level: number
+            upload_date: number | null
         }>
         return rows.map(row => ({
             path: row.path,
             rootHash: row.root_hash,
             kind: row.kind,
             chunkCount: row.chunks_len / 4,
-            redundancyLevel: row.redundancy_level
+            redundancyLevel: row.redundancy_level,
+            uploadDate: row.upload_date
         }))
     }
 
-    add(path: string, rootHash: Uint8Array, chunks: ChunkRef[], kind: EntryKind = 'file', redundancyLevel = 0): void {
+    add(
+        path: string,
+        rootHash: Uint8Array,
+        chunks: ChunkRef[],
+        kind: EntryKind = 'file',
+        redundancyLevel = 0,
+        uploadDate: number = Date.now()
+    ): void {
         this.db
-            .prepare('INSERT INTO files (path, root_hash, chunks, kind, redundancy_level) VALUES (?, ?, ?, ?, ?)')
-            .run(path, rootHash, serializeChunks(chunks), kind, redundancyLevel)
+            .prepare(
+                'INSERT INTO files (path, root_hash, chunks, kind, redundancy_level, upload_date) VALUES (?, ?, ?, ?, ?, ?)'
+            )
+            .run(path, rootHash, serializeChunks(chunks), kind, redundancyLevel, uploadDate)
     }
 
     removeByRootHash(rootHash: Uint8Array): ChunkRef[] | null {

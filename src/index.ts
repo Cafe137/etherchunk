@@ -3,7 +3,7 @@ import { Binary, Types } from 'cafe-utility'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { argv, env, loadEnvFile } from 'node:process'
-import { benchSign, benchSplit, deleteFile, list, status, upload } from './commands.js'
+import { benchSign, benchSplit, deleteFile, list, migrate, status, upload } from './commands.js'
 
 main()
 
@@ -33,9 +33,12 @@ async function main() {
         )
     } else if (command === 'list') {
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        for (const { path, rootHash, kind, chunkCount, redundancyLevel } of list({ batchId, stateDir })) {
+        for (const { path, rootHash, kind, chunkCount, redundancyLevel, uploadDate } of list({ batchId, stateDir })) {
             const redundancy = redundancyLevel > 0 ? `  redundancy=${redundancyLevel}` : ''
-            console.log(`${Binary.uint8ArrayToHex(rootHash)}  ${path}  [${kind}]  ${chunkCount} chunks${redundancy}`)
+            const uploaded = uploadDate ? new Date(uploadDate).toISOString() : 'unknown'
+            console.log(
+                `${Binary.uint8ArrayToHex(rootHash)}  ${path}  [${kind}]  ${chunkCount} chunks${redundancy}  uploaded=${uploaded}`
+            )
         }
     } else if (command === 'upload') {
         const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_SIGNER)), 'BE')
@@ -46,7 +49,8 @@ async function main() {
         const encrypt = uploadArgs.includes('--encrypt')
         const redundancyLevel =
             parseIntFlag(uploadArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
-        const path = resolve(Types.asString(findPath(uploadArgs, '--redundancy')))
+        const parallelism = parseIntFlag(uploadArgs, '--parallelism') ?? parseInt(env.SWARMFS_PARALLELISM ?? '32')
+        const path = resolve(Types.asString(findPath(uploadArgs, '--redundancy', '--parallelism')))
         let lastFile = ''
         const rootHash = await upload({
             signer,
@@ -57,6 +61,7 @@ async function main() {
             stateDir,
             encrypt,
             redundancyLevel,
+            parallelism,
             onProgress: (file, chunks) => {
                 if (file !== lastFile) {
                     if (lastFile) process.stderr.write('\n')
@@ -67,6 +72,16 @@ async function main() {
         })
         if (lastFile) process.stderr.write('\n')
         console.log(Binary.uint8ArrayToHex(rootHash))
+    } else if (command === 'migrate') {
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
+        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const result = migrate({ batchId, batchDepth, stateDir })
+        if (!result.migrated) {
+            console.log(`Nothing to migrate: ${result.reason}`)
+        } else {
+            console.log(`Migrated slot map from depth ${result.oldDepth} to ${result.newDepth} (${result.oldSize} -> ${result.newSize} bytes)`)
+            console.log(`Backup of the old state saved to ${result.backupPath}`)
+        }
     } else if (command === 'delete') {
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
         const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
@@ -117,7 +132,7 @@ async function main() {
         })
         if (lastFile) process.stderr.write('\n')
     } else {
-        throw new Error(`Unknown command: ${command}. Use status, list, upload, delete, bench:split, or bench:sign.`)
+        throw new Error(`Unknown command: ${command}. Use status, list, upload, delete, migrate, bench:split, or bench:sign.`)
     }
 }
 

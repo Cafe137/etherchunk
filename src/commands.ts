@@ -5,13 +5,16 @@ import { basename, join, relative, resolve } from 'node:path'
 import { getMaxShards, makeErasureBatch, makeIntermediateChunkHandler } from './erasure.js'
 import { MantarayNode } from './manifest.js'
 import { ChunkRef, EntryKind, FileRegistry } from './registry.js'
-import { SlotMap } from './slotmap.js'
+import { MigrationResult, SlotMap } from './slotmap.js'
 import { makeEncryptedReplicas, makeReplicas } from './soc.js'
 import { stamp } from './stamper.js'
 
 const ENCODER = new TextEncoder()
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'statusText'>>
+type FetchFn = (
+    url: string,
+    init?: RequestInit
+) => Promise<Pick<Response, 'ok' | 'status' | 'statusText'> & Partial<Pick<Response, 'text'>>>
 
 export interface UploadOpts {
     signer: bigint
@@ -22,6 +25,7 @@ export interface UploadOpts {
     stateDir: string
     encrypt?: boolean
     redundancyLevel?: number
+    parallelism?: number
     fetchFn?: FetchFn
     onProgress?: (file: string, chunksProcessed: number) => void
 }
@@ -61,12 +65,47 @@ export interface StatusOpts {
     stateDir: string
 }
 
+export interface MigrateOpts {
+    batchId: Uint8Array
+    batchDepth: number
+    stateDir: string
+}
+
 function getPaths(stateDir: string, batchId: Uint8Array) {
     const prefix = Binary.uint8ArrayToHex(batchId).slice(0, 8)
     return {
         free: join(stateDir, `swarmfs-${prefix}.free`),
         idx: join(stateDir, `swarmfs-${prefix}.db`)
     }
+}
+
+const HEX_REFERENCE_PATTERN = /^[0-9a-fA-F]{64}$/
+
+// A real Bee node answers a successful POST /chunks with 201 Created and a
+// body like {"reference":"<64-char hex>"}. A misconfigured SWARMFS_UPLOAD_URL
+// (e.g. missing the /chunks suffix) hits Bee's root landing page instead,
+// which happily returns 200 OK for any method — so response.ok alone can't
+// catch it. Checking the actual response shape can.
+async function validateChunkResponse(
+    response: Pick<Response, 'status' | 'statusText'> & Partial<Pick<Response, 'text'>>
+): Promise<string | null> {
+    if (response.status !== 201) {
+        return `expected 201 Created from POST /chunks, got ${response.status} ${response.statusText}`
+    }
+    if (!response.text) {
+        return null
+    }
+    const bodyText = await response.text()
+    let reference: unknown
+    try {
+        reference = JSON.parse(bodyText)?.reference
+    } catch {
+        return `expected a JSON {"reference": "<hex>"} body from POST /chunks, got: ${bodyText.slice(0, 200)}`
+    }
+    if (typeof reference !== 'string' || !HEX_REFERENCE_PATTERN.test(reference)) {
+        return `expected a 64-char hex "reference" in the POST /chunks response, got: ${JSON.stringify(reference)} — check that SWARMFS_UPLOAD_URL points at the Bee node's /chunks endpoint`
+    }
+    return null
 }
 
 export function buildChunkBody(chunk: Chunk, key?: Uint8Array): Uint8Array {
@@ -104,8 +143,9 @@ function makeOnChunk(
                     headers: { 'swarm-postage-stamp': swarmPostageStamp },
                     signal: AbortSignal.timeout(Dates.seconds(30))
                 })
-                if (!response.ok) {
-                    uploadErrors.push(new Error(`Failed to upload chunk: ${response.status} ${response.statusText}`))
+                const validationError = await validateChunkResponse(response)
+                if (validationError) {
+                    uploadErrors.push(new Error(`Failed to upload chunk: ${validationError}`))
                 }
             } catch (err) {
                 uploadErrors.push(err instanceof Error ? err : new Error(String(err)))
@@ -139,8 +179,9 @@ function makeRawOnChunk(
                     headers: { 'swarm-postage-stamp': swarmPostageStamp },
                     signal: AbortSignal.timeout(Dates.seconds(30))
                 })
-                if (!response.ok) {
-                    uploadErrors.push(new Error(`Failed to upload chunk: ${response.status} ${response.statusText}`))
+                const validationError = await validateChunkResponse(response)
+                if (validationError) {
+                    uploadErrors.push(new Error(`Failed to upload chunk: ${validationError}`))
                 }
             } catch (err) {
                 uploadErrors.push(err instanceof Error ? err : new Error(String(err)))
@@ -256,7 +297,8 @@ export async function upload(opts: UploadOpts): Promise<Uint8Array> {
 
     const chunks: ChunkRef[] = []
     const uploadErrors: Error[] = []
-    const queue = new AsyncQueue(32, 128)
+    const parallelism = opts.parallelism ?? 32
+    const queue = new AsyncQueue(parallelism, parallelism * 4)
     const rawOnChunk = makeOnChunk(signer, batchId, uploadUrl, fetchFn, slotMap, chunks, queue, uploadErrors)
     const rawOnReplica = makeRawOnChunk(signer, batchId, uploadUrl, fetchFn, slotMap, chunks, queue, uploadErrors)
 
@@ -388,9 +430,14 @@ export async function deleteFile(opts: DeleteOpts): Promise<void> {
     slotMap.save()
 }
 
-export function list(
-    opts: ListOpts
-): Array<{ path: string; rootHash: Uint8Array; kind: EntryKind; chunkCount: number; redundancyLevel: number }> {
+export function list(opts: ListOpts): Array<{
+    path: string
+    rootHash: Uint8Array
+    kind: EntryKind
+    chunkCount: number
+    redundancyLevel: number
+    uploadDate: number | null
+}> {
     const { idx } = getPaths(opts.stateDir, opts.batchId)
     return new FileRegistry(idx).list()
 }
@@ -398,6 +445,14 @@ export function list(
 export function status(opts: StatusOpts) {
     const { free } = getPaths(opts.stateDir, opts.batchId)
     return new SlotMap(free, opts.batchDepth).getStats()
+}
+
+// Rewrites the .free file for this batch to match opts.batchDepth, preserving
+// occupied-slot state. Safe to run whenever SWARMFS_BATCH_DEPTH no longer matches
+// the depth the local state was created with (e.g. after diluting the batch).
+export function migrate(opts: MigrateOpts): MigrationResult {
+    const { free } = getPaths(opts.stateDir, opts.batchId)
+    return SlotMap.migrate(free, opts.batchDepth)
 }
 
 function walkDir(dir: string): string[] {
