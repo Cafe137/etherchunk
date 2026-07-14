@@ -2,10 +2,12 @@
     "name": "swarm-fs",
     "version": "1.3.0",
     "type": "module",
+    "license": "MIT",
     "files": [
         "dist",
         "README.md",
-        ".env.example"
+        ".env.example",
+        "LICENSE"
     ],
     "bin": {
         "swarm-fs": "dist/index.js"
