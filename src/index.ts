@@ -51,7 +51,7 @@ async function main() {
             parseIntFlag(uploadArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
         const parallelism = parseIntFlag(uploadArgs, '--parallelism') ?? parseInt(env.SWARMFS_PARALLELISM ?? '32')
         const path = resolve(Types.asString(findPath(uploadArgs, '--redundancy', '--parallelism')))
-        let lastFile = ''
+        const progress = makeProgressReporter()
         const rootHash = await upload({
             signer,
             batchId,
@@ -62,15 +62,9 @@ async function main() {
             encrypt,
             redundancyLevel,
             parallelism,
-            onProgress: (file, chunks) => {
-                if (file !== lastFile) {
-                    if (lastFile) process.stderr.write('\n')
-                    lastFile = file
-                }
-                process.stderr.write(`\r  ${file} — ${chunks} chunks`)
-            }
+            onProgress: progress.onProgress
         })
-        if (lastFile) process.stderr.write('\n')
+        progress.done()
         console.log(Binary.uint8ArrayToHex(rootHash))
     } else if (command === 'migrate') {
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
@@ -92,20 +86,14 @@ async function main() {
         const encrypt = benchArgs.includes('--encrypt')
         const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
         const path = resolve(Types.asString(findPath(benchArgs, '--redundancy')))
-        let lastFile = ''
+        const progress = makeProgressReporter()
         await benchSplit({
             path,
             encrypt,
             redundancyLevel,
-            onProgress: (file, chunks) => {
-                if (file !== lastFile) {
-                    if (lastFile) process.stderr.write('\n')
-                    lastFile = file
-                }
-                process.stderr.write(`\r  ${file} — ${chunks} chunks`)
-            }
+            onProgress: progress.onProgress
         })
-        if (lastFile) process.stderr.write('\n')
+        progress.done()
     } else if (command === 'bench:sign') {
         const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_SIGNER)), 'BE')
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
@@ -114,7 +102,7 @@ async function main() {
         const encrypt = benchArgs.includes('--encrypt')
         const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
         const path = resolve(Types.asString(findPath(benchArgs, '--redundancy')))
-        let lastFile = ''
+        const progress = makeProgressReporter()
         await benchSign({
             signer,
             batchId,
@@ -122,17 +110,31 @@ async function main() {
             path,
             encrypt,
             redundancyLevel,
-            onProgress: (file, chunks) => {
-                if (file !== lastFile) {
-                    if (lastFile) process.stderr.write('\n')
-                    lastFile = file
-                }
-                process.stderr.write(`\r  ${file} — ${chunks} chunks`)
-            }
+            onProgress: progress.onProgress
         })
-        if (lastFile) process.stderr.write('\n')
+        progress.done()
     } else {
         throw new Error(`Unknown command: ${command}. Use status, list, upload, delete, migrate, bench:split, or bench:sign.`)
+    }
+}
+
+function makeProgressReporter(): { onProgress: (file: string, chunks: number) => void; done: () => void } {
+    const isTty = Boolean(process.stderr.isTTY)
+    let lastFile = ''
+    return {
+        onProgress: (file, chunks) => {
+            if (file !== lastFile) {
+                if (lastFile && isTty) process.stderr.write('\n')
+                lastFile = file
+                // Without a TTY, carriage-return overwrites don't work (e.g. GitHub
+                // Actions), so emit a single line per file instead of one per chunk.
+                if (!isTty) process.stderr.write(`  ${file}\n`)
+            }
+            if (isTty) process.stderr.write(`\r  ${file} — ${chunks} chunks`)
+        },
+        done: () => {
+            if (lastFile && isTty) process.stderr.write('\n')
+        }
     }
 }
 
