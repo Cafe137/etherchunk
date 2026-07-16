@@ -1,6 +1,6 @@
 {
-    "name": "swarm-fs",
-    "version": "1.3.2",
+    "name": "etherchunk",
+    "version": "1.0.0",
     "type": "module",
     "license": "MIT",
     "files": [
@@ -10,7 +10,7 @@
         "LICENSE"
     ],
     "bin": {
-        "swarm-fs": "dist/index.js"
+        "etherchunk": "dist/index.js"
     },
     "scripts": {
         "build": "tsc"
@@ -21,7 +21,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/Cafe137/swarm-fs"
+        "url": "https://github.com/Cafe137/etherchunk"
     },
     "devDependencies": {
         "@types/better-sqlite3": "^7.6.13",

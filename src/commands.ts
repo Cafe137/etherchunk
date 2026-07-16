@@ -74,15 +74,15 @@ export interface MigrateOpts {
 function getPaths(stateDir: string, batchId: Uint8Array) {
     const prefix = Binary.uint8ArrayToHex(batchId).slice(0, 8)
     return {
-        free: join(stateDir, `swarmfs-${prefix}.free`),
-        idx: join(stateDir, `swarmfs-${prefix}.db`)
+        free: join(stateDir, `etherchunk-${prefix}.free`),
+        idx: join(stateDir, `etherchunk-${prefix}.db`)
     }
 }
 
 const HEX_REFERENCE_PATTERN = /^[0-9a-fA-F]{64}$/
 
 // A real Bee node answers a successful POST /chunks with 201 Created and a
-// body like {"reference":"<64-char hex>"}. A misconfigured SWARMFS_UPLOAD_URL
+// body like {"reference":"<64-char hex>"}. A misconfigured ETHERCHUNK_UPLOAD_URL
 // (e.g. missing the /chunks suffix) hits Bee's root landing page instead,
 // which happily returns 200 OK for any method — so response.ok alone can't
 // catch it. Checking the actual response shape can.
@@ -103,7 +103,7 @@ async function validateChunkResponse(
         return `expected a JSON {"reference": "<hex>"} body from POST /chunks, got: ${bodyText.slice(0, 200)}`
     }
     if (typeof reference !== 'string' || !HEX_REFERENCE_PATTERN.test(reference)) {
-        return `expected a 64-char hex "reference" in the POST /chunks response, got: ${JSON.stringify(reference)} — check that SWARMFS_UPLOAD_URL points at the Bee node's /chunks endpoint`
+        return `expected a 64-char hex "reference" in the POST /chunks response, got: ${JSON.stringify(reference)} — check that ETHERCHUNK_UPLOAD_URL points at the Bee node's /chunks endpoint`
     }
     return null
 }
@@ -356,7 +356,7 @@ export async function benchSign(opts: BenchSignOpts): Promise<void> {
     const encrypt = opts.encrypt ?? false
     const redundancyLevel = opts.redundancyLevel ?? 0
 
-    const tmpFree = join(tmpdir(), `swarmfs-bench-${process.pid}.free`)
+    const tmpFree = join(tmpdir(), `etherchunk-bench-${process.pid}.free`)
     const slotMap = new SlotMap(tmpFree, batchDepth)
 
     let chunksProcessed = 0
@@ -448,7 +448,7 @@ export function status(opts: StatusOpts) {
 }
 
 // Rewrites the .free file for this batch to match opts.batchDepth, preserving
-// occupied-slot state. Safe to run whenever SWARMFS_BATCH_DEPTH no longer matches
+// occupied-slot state. Safe to run whenever ETHERCHUNK_BATCH_DEPTH no longer matches
 // the depth the local state was created with (e.g. after diluting the batch).
 export function migrate(opts: MigrateOpts): MigrationResult {
     const { free } = getPaths(opts.stateDir, opts.batchId)

@@ -36,7 +36,7 @@ function byteLengthForDepth(depth: number): number {
 
 // A .free file's size is fully determined by BUCKET_COUNT and the batch depth it was
 // created with, so the depth a file was created with can be read back out of its size.
-// Used to detect a stale .free file after SWARMFS_BATCH_DEPTH changes (e.g. after diluting
+// Used to detect a stale .free file after ETHERCHUNK_BATCH_DEPTH changes (e.g. after diluting
 // a postage batch) and to drive migrate().
 function inferDepthFromFileSize(path: string, fileSize: number): number {
     const totalSlots = fileSize * 8
@@ -74,8 +74,8 @@ export class SlotMap {
             if (this.data.length !== expectedSize) {
                 const foundDepth = inferDepthFromFileSize(path, this.data.length)
                 throw new Error(
-                    `Slot map file ${path} was created with depth ${foundDepth}, but SWARMFS_BATCH_DEPTH is now ${depth}. ` +
-                        `Run "swarmfs migrate" to safely convert the existing state before continuing.`
+                    `Slot map file ${path} was created with depth ${foundDepth}, but ETHERCHUNK_BATCH_DEPTH is now ${depth}. ` +
+                        `Run "etherchunk migrate" to safely convert the existing state before continuing.`
                 )
             }
         } else {

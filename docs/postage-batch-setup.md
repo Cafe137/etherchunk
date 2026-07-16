@@ -1,7 +1,7 @@
 # Postage Batch Setup
 
-This guide explains how to obtain the three environment variables needed to use Swarm FS:
-`SWARMFS_SIGNER`, `SWARMFS_BATCH_ID`, and `SWARMFS_BATCH_DEPTH`.
+This guide explains how to obtain the three environment variables needed to use Etherchunk:
+`ETHERCHUNK_SIGNER`, `ETHERCHUNK_BATCH_ID`, and `ETHERCHUNK_BATCH_DEPTH`.
 
 ## Prerequisites
 
@@ -23,13 +23,13 @@ swarm-cli stamp buy --depth 22 --amount 10000000
 Use the returned values as:
 
 ```sh
-export SWARMFS_BATCH_ID="<batch id hex from purchase>"
-export SWARMFS_BATCH_DEPTH=<depth you specified>
+export ETHERCHUNK_BATCH_ID="<batch id hex from purchase>"
+export ETHERCHUNK_BATCH_DEPTH=<depth you specified>
 ```
 
 ## 2. Obtain the signer private key
 
-Swarm FS signs stamps client-side and requires the private key that controls your postage batch. Export it from your Bee node's keystore using swarm-cli:
+Etherchunk signs stamps client-side and requires the private key that controls your postage batch. Export it from your Bee node's keystore using swarm-cli:
 
 ```sh
 swarm-cli utility unlock <path to swarm.key>
@@ -38,7 +38,7 @@ swarm-cli utility unlock <path to swarm.key>
 This prints the raw private key hex. Use it as:
 
 ```sh
-export SWARMFS_SIGNER="<private key hex>"
+export ETHERCHUNK_SIGNER="<private key hex>"
 ```
 
 > **Keep this value secret.** Anyone with this key can sign stamps against your batch.

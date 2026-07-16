@@ -15,11 +15,11 @@ async function main() {
     }
 
     const command = Types.asString(argv[2])
-    const stateDir = join(homedir(), '.swarmfs')
+    const stateDir = join(homedir(), '.etherchunk')
 
     if (command === 'status') {
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
         const { totalSlots, occupiedSlots, freeSlots, slotsPerBucket, mostUtilizedBucket, mostUtilizedCount } = status({
             batchId,
             batchDepth,
@@ -32,7 +32,7 @@ async function main() {
                 .padStart(4, '0')} (${mostUtilizedCount}/${slotsPerBucket} slots occupied)`
         )
     } else if (command === 'list') {
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
         for (const { path, rootHash, kind, chunkCount, redundancyLevel, uploadDate } of list({ batchId, stateDir })) {
             const redundancy = redundancyLevel > 0 ? `  redundancy=${redundancyLevel}` : ''
             const uploaded = uploadDate ? new Date(uploadDate).toISOString() : 'unknown'
@@ -41,15 +41,15 @@ async function main() {
             )
         }
     } else if (command === 'upload') {
-        const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_SIGNER)), 'BE')
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        const uploadUrl = Types.asString(env.SWARMFS_UPLOAD_URL)
-        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_SIGNER)), 'BE')
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const uploadUrl = Types.asString(env.ETHERCHUNK_UPLOAD_URL)
+        const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
         const uploadArgs = argv.slice(3)
         const encrypt = uploadArgs.includes('--encrypt')
         const redundancyLevel =
-            parseIntFlag(uploadArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
-        const parallelism = parseIntFlag(uploadArgs, '--parallelism') ?? parseInt(env.SWARMFS_PARALLELISM ?? '32')
+            parseIntFlag(uploadArgs, '--redundancy') ?? parseInt(env.ETHERCHUNK_REDUNDANCY_LEVEL ?? '0')
+        const parallelism = parseIntFlag(uploadArgs, '--parallelism') ?? parseInt(env.ETHERCHUNK_PARALLELISM ?? '32')
         const path = resolve(Types.asString(findPath(uploadArgs, '--redundancy', '--parallelism')))
         const progress = makeProgressReporter()
         const rootHash = await upload({
@@ -67,8 +67,8 @@ async function main() {
         progress.done()
         console.log(Binary.uint8ArrayToHex(rootHash))
     } else if (command === 'migrate') {
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
         const result = migrate({ batchId, batchDepth, stateDir })
         if (!result.migrated) {
             console.log(`Nothing to migrate: ${result.reason}`)
@@ -77,14 +77,14 @@ async function main() {
             console.log(`Backup of the old state saved to ${result.backupPath}`)
         }
     } else if (command === 'delete') {
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
         const rootHash = Binary.hexToUint8Array(Types.asHexString(argv[3]))
         await deleteFile({ batchId, batchDepth, rootHash, stateDir })
     } else if (command === 'bench:split') {
         const benchArgs = argv.slice(3)
         const encrypt = benchArgs.includes('--encrypt')
-        const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
+        const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.ETHERCHUNK_REDUNDANCY_LEVEL ?? '0')
         const path = resolve(Types.asString(findPath(benchArgs, '--redundancy')))
         const progress = makeProgressReporter()
         await benchSplit({
@@ -95,12 +95,12 @@ async function main() {
         })
         progress.done()
     } else if (command === 'bench:sign') {
-        const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_SIGNER)), 'BE')
-        const batchId = Binary.hexToUint8Array(Types.asHexString(env.SWARMFS_BATCH_ID))
-        const batchDepth = Types.asNumber(env.SWARMFS_BATCH_DEPTH)
+        const signer = Binary.uint256ToNumber(Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_SIGNER)), 'BE')
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
         const benchArgs = argv.slice(3)
         const encrypt = benchArgs.includes('--encrypt')
-        const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.SWARMFS_REDUNDANCY_LEVEL ?? '0')
+        const redundancyLevel = parseIntFlag(benchArgs, '--redundancy') ?? parseInt(env.ETHERCHUNK_REDUNDANCY_LEVEL ?? '0')
         const path = resolve(Types.asString(findPath(benchArgs, '--redundancy')))
         const progress = makeProgressReporter()
         await benchSign({
