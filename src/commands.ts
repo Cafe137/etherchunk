@@ -228,7 +228,10 @@ async function processPath(
         }
 
         for (const [swarmPath, hash] of fileHashes) {
-            root.addFork(ENCODER.encode(swarmPath), hash, { 'Content-Type': guessMimeType(swarmPath) })
+            root.addFork(ENCODER.encode(swarmPath), hash, {
+                'Content-Type': guessMimeType(swarmPath),
+                Filename: basename(swarmPath)
+            })
         }
 
         setFile('(manifest)')
@@ -267,7 +270,10 @@ async function processPath(
         const root = new MantarayNode({ encrypt })
         setFile('(manifest)')
         root.addFork(ENCODER.encode('/'), new Uint8Array(encrypt ? 64 : 32), { 'website-index-document': filename })
-        root.addFork(ENCODER.encode(filename), fileRef, { 'Content-Type': guessMimeType(resolvedPath) })
+        root.addFork(ENCODER.encode(filename), fileRef, {
+            'Content-Type': guessMimeType(resolvedPath),
+            Filename: filename
+        })
         const {
             ref: manifestRoot,
             rootChunk: manifestRootChunk,
