@@ -103,7 +103,9 @@ async function validateChunkResponse(
         return `expected a JSON {"reference": "<hex>"} body from POST /chunks, got: ${bodyText.slice(0, 200)}`
     }
     if (typeof reference !== 'string' || !HEX_REFERENCE_PATTERN.test(reference)) {
-        return `expected a 64-char hex "reference" in the POST /chunks response, got: ${JSON.stringify(reference)} — check that ETHERCHUNK_UPLOAD_URL points at the Bee node's /chunks endpoint`
+        return `expected a 64-char hex "reference" in the POST /chunks response, got: ${JSON.stringify(
+            reference
+        )} — check that ETHERCHUNK_UPLOAD_URL points at the Bee node's /chunks endpoint`
     }
     return null
 }
@@ -474,12 +476,36 @@ function walkDir(dir: string): string[] {
 function guessMimeType(filePath: string): string {
     const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
     const types: Record<string, string> = {
+        // HTML
         '.html': 'text/html',
         '.htm': 'text/html',
+
+        // Styles
         '.css': 'text/css',
+
+        // JavaScript / TypeScript
         '.js': 'application/javascript',
         '.mjs': 'application/javascript',
+        '.cjs': 'application/javascript',
+        '.tsx': 'text/typescript',
+        '.jsx': 'text/jsx',
+
+        // Data
         '.json': 'application/json',
+        '.jsonld': 'application/ld+json',
+        '.map': 'application/json',
+        '.xml': 'application/xml',
+        '.yaml': 'application/yaml',
+        '.yml': 'application/yaml',
+        '.toml': 'application/toml',
+        '.csv': 'text/csv',
+        '.txt': 'text/plain',
+        '.md': 'text/markdown',
+
+        // WebAssembly
+        '.wasm': 'application/wasm',
+
+        // Images
         '.png': 'image/png',
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
@@ -487,16 +513,62 @@ function guessMimeType(filePath: string): string {
         '.svg': 'image/svg+xml',
         '.ico': 'image/x-icon',
         '.webp': 'image/webp',
+        '.avif': 'image/avif',
+        '.apng': 'image/apng',
+        '.bmp': 'image/bmp',
+        '.tif': 'image/tiff',
+        '.tiff': 'image/tiff',
+
+        // Fonts
         '.woff': 'font/woff',
         '.woff2': 'font/woff2',
         '.ttf': 'font/ttf',
-        '.txt': 'text/plain',
-        '.xml': 'application/xml',
-        '.pdf': 'application/pdf',
+        '.otf': 'font/otf',
+        '.eot': 'application/vnd.ms-fontobject',
+
+        // Audio
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+        '.oga': 'audio/ogg',
+        '.flac': 'audio/flac',
+        '.aac': 'audio/aac',
+        '.m4a': 'audio/mp4',
+
+        // Video
         '.mp4': 'video/mp4',
         '.webm': 'video/webm',
-        '.mp3': 'audio/mpeg',
-        '.wav': 'audio/wav'
+        '.ogv': 'video/ogg',
+        '.mov': 'video/quicktime',
+        '.avi': 'video/x-msvideo',
+        '.mkv': 'video/x-matroska',
+        // .ts collides with TypeScript sources; HLS segments are the case that breaks
+        // if served with the wrong type, so it wins here (matches nginx/Apache).
+        '.ts': 'video/mp2t',
+
+        // Documents
+        '.pdf': 'application/pdf',
+        '.rtf': 'application/rtf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+        // Archives
+        '.zip': 'application/zip',
+        '.gz': 'application/gzip',
+        '.tgz': 'application/gzip',
+        '.tar': 'application/x-tar',
+        '.bz2': 'application/x-bzip2',
+        '.xz': 'application/x-xz',
+        '.7z': 'application/x-7z-compressed',
+
+        // Misc
+        '.rss': 'application/rss+xml',
+        '.atom': 'application/atom+xml',
+        '.webmanifest': 'application/manifest+json'
     }
     return types[ext] ?? 'application/octet-stream'
 }

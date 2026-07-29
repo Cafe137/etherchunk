@@ -184,7 +184,15 @@ export class MantarayNode {
                 fork.node.selfAddress = await fork.node.calculateSelfAddress()
             }
         }
-        if (this.encrypt && Binary.equals(this.obfuscationKey, new Uint8Array(32))) {
+        // The obfuscation key randomizes every manifest node, encrypted or not: it is XORed
+        // over the serialized body and stored in the clear as the node's first 32 bytes, so
+        // readers recover the content either way. Leaving it all-zeros makes structurally
+        // identical nodes byte-identical — and therefore address-identical. The '/' metadata
+        // fork node (target address all-zeros, no forks of its own, metadata held by the
+        // parent) serializes the same for *every* upload, so a zero key made every upload
+        // re-stamp one fixed chunk, piling slots into a single postage bucket until that
+        // bucket filled while the batch was barely used. A fresh key per node scatters them.
+        if (Binary.equals(this.obfuscationKey, new Uint8Array(32))) {
             this.obfuscationKey = new Uint8Array(randomBytes(32))
         }
         const header = new Uint8Array(32)

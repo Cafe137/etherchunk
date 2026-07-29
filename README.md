@@ -86,7 +86,8 @@ CREATE TABLE files (
     root_hash        BLOB NOT NULL,    -- 32 bytes
     chunks           BLOB NOT NULL,    -- repeated [bucket uint16, slot uint16] pairs
     kind             TEXT NOT NULL DEFAULT 'file',  -- 'file' or 'manifest'
-    redundancy_level INTEGER NOT NULL DEFAULT 0     -- 0=none, 1=MEDIUM, 2=STRONG, 3=INSANE, 4=PARANOID
+    redundancy_level INTEGER NOT NULL DEFAULT 0,    -- 0=none, 1=MEDIUM, 2=STRONG, 3=INSANE, 4=PARANOID
+    upload_date      INTEGER                        -- unix timestamp, nullable
 );
 CREATE INDEX idx_root_hash ON files(root_hash);
 ```

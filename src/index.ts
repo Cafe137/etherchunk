@@ -14,8 +14,13 @@ async function main() {
         // No .env file found, continue with environment variables
     }
 
-    const command = Types.asString(argv[2])
+    const command = argv[2]
     const stateDir = join(homedir(), '.etherchunk')
+
+    if (!command) {
+        printHelp()
+        return
+    }
 
     if (command === 'status') {
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
@@ -37,7 +42,7 @@ async function main() {
             const redundancy = redundancyLevel > 0 ? `  redundancy=${redundancyLevel}` : ''
             const uploaded = uploadDate ? new Date(uploadDate).toISOString() : 'unknown'
             console.log(
-                `${Binary.uint8ArrayToHex(rootHash)}  ${path}  [${kind}]  ${chunkCount} chunks${redundancy}  uploaded=${uploaded}`
+                `${maskHash(Binary.uint8ArrayToHex(rootHash))}  ${maskPath(path)}  [${kind}]  ${chunkCount} chunks${redundancy}  uploaded=${uploaded}`
             )
         }
     } else if (command === 'upload') {
@@ -116,6 +121,48 @@ async function main() {
     } else {
         throw new Error(`Unknown command: ${command}. Use status, list, upload, delete, migrate, bench:split, or bench:sign.`)
     }
+}
+
+function printHelp() {
+    console.log(`etherchunk — client-side chunk stamping and slot tracking on top of Bee
+
+Usage: etherchunk <command> [options]
+
+Commands:
+  upload <file|dir>    Upload a file or directory and print the manifest root hash
+                       Options: --encrypt, --redundancy=<0-4>, --parallelism=<n>
+  list                 List all tracked files and manifests
+  delete <root hash>   Delete a file or manifest by root hash, reclaiming its slots
+  status               Show slot usage and most utilized bucket
+  migrate              Migrate the slot map after a batch depth change
+  bench:split <file|dir>  Benchmark chunk splitting speed (no upload, no state changes)
+  bench:sign <file|dir>   Benchmark chunk splitting + stamp signing speed (no upload)
+
+Configuration is read from environment variables (or a local .env file):
+  ETHERCHUNK_UPLOAD_URL, ETHERCHUNK_SIGNER, ETHERCHUNK_BATCH_ID, ETHERCHUNK_BATCH_DEPTH,
+  ETHERCHUNK_REDUNDANCY_LEVEL, ETHERCHUNK_PARALLELISM, ETHERCHUNK_PRIVATE`)
+}
+
+// When ETHERCHUNK_PRIVATE=true, redact filenames and hashes from all output so
+// they can't be read off a shared screen. Off by default.
+function isPrivate(): boolean {
+    return (env.ETHERCHUNK_PRIVATE ?? 'false').toLowerCase() === 'true'
+}
+
+// ab...ef -> ab***ef, keeping only the first and last two hex chars.
+function maskHash(hex: string): string {
+    if (!isPrivate()) return hex
+    if (hex.length <= 4) return '*'.repeat(hex.length)
+    return `${hex.slice(0, 2)}***${hex.slice(-2)}`
+}
+
+// Replace the basename of a path with ***, preserving the directory and any
+// bracketed status markers like "(manifest)".
+function maskPath(path: string): string {
+    if (!isPrivate()) return path
+    if (path.startsWith('(')) return path
+    const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+    return idx >= 0 ? `${path.slice(0, idx + 1)}***` : '***'
 }
 
 function makeProgressReporter(): { onProgress: (file: string, chunks: number) => void; done: () => void } {

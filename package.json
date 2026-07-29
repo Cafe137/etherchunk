@@ -1,6 +1,6 @@
 {
     "name": "etherchunk",
-    "version": "1.0.1",
+    "version": "1.1.1",
     "type": "module",
     "license": "MIT",
     "files": [
@@ -17,7 +17,7 @@
     },
     "dependencies": {
         "better-sqlite3": "^12.11.1",
-        "cafe-utility": "^36.1.8"
+        "cafe-utility": "^36.2.1"
     },
     "repository": {
         "type": "git",
