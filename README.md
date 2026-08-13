@@ -21,6 +21,10 @@ export ETHERCHUNK_BATCH_ID="<batch id hex>"
 export ETHERCHUNK_BATCH_DEPTH=<depth of your batch>
 export ETHERCHUNK_REDUNDANCY_LEVEL=0  # 0=none, 1=MEDIUM, 2=STRONG, 3=INSANE, 4=PARANOID
 export ETHERCHUNK_PARALLELISM=32  # max chunks uploaded concurrently
+
+# Optional — where `etherchunk export` reads chunks from. Defaults to ETHERCHUNK_UPLOAD_URL,
+# since downloads are GET /chunks/<address> on the same endpoint uploads POST to.
+export ETHERCHUNK_DOWNLOAD_URL="http://localhost:1633/chunks"
 ```
 
 ```sh
@@ -41,6 +45,13 @@ etherchunk upload <file|dir> --parallelism=64
 
 # List all tracked files and manifests
 etherchunk list
+
+# Download everything ever uploaded from this batch, each upload into its own
+# <dir>/<root hash>/ folder (default dir: ./etherchunk-export)
+etherchunk export [dir]
+
+# Export with a custom number of chunks in flight at once (default 32)
+etherchunk export [dir] --parallelism=64
 
 # Delete a file or manifest by root hash, reclaiming its slots
 etherchunk delete <root hash>
@@ -120,3 +131,33 @@ After upload, the directory is accessible at `<gateway>/bzz/<root-hash>/` and `<
 2. Return all its `(bucket, slot)` pairs to `etherchunk.free` under their respective buckets
 3. Remove the file entry from `etherchunk.db`
 4. Optionally upload tombstone chunks to overwrite the slots on the network
+
+### Export flow
+
+`export` reverses an upload for every entry in `etherchunk.db`, reading chunks back with `GET /chunks/<address>` and reassembling them locally — nothing about the reconstruction is delegated to the node.
+
+1. For each registry entry, create `<dir>/<root hash>/`
+2. Walk the Mantaray trie from the root reference to recover every file path and its reference
+3. Join each file's chunk tree and stream the result into `<dir>/<root hash>/<path>`
+
+Every chunk is verified against the address it was fetched by, so a wrong endpoint or a corrupted body can never end up inside an exported file. Reassembly follows chunk spans rather than counting references, which is what lets it stop before the parity references that an erasure-coded upload appends to its intermediate chunks. Encrypted uploads need no extra input: the 64-byte reference recorded at upload time carries the key alongside the address.
+
+An entry whose chunks are no longer retrievable is reported on its own line and does not stop the remaining entries — postage batches routinely outlive the content of individual uploads.
+
+### Recovering damaged uploads
+
+If an upload was made with `--redundancy`, `export` uses it. Chunks that are missing — or that come back corrupted, which amounts to the same thing once the address check fails — are rebuilt from what the upload paid for:
+
+-   **Reed-Solomon**, for anything inside a chunk tree. An erasure batch is the set of children of one intermediate chunk, so a batch that lost no more chunks than it has parity shards is rebuilt in place. At `--redundancy=4` there are more parity shards than data shards, so an entire batch can be gone and still come back.
+-   **Dispersed replicas**, for root chunks. Parity references live in the parent of the chunks they protect, so the top of a tree has none; each file root and each Mantaray node's root are covered by their SOC replicas instead.
+
+The Mantaray trie is protected exactly like the content it points at — parity inside any node wide enough to span several chunks, replicas for every node's root chunk. Losing one trie chunk would otherwise lose every file below it, whatever the content's parity.
+
+Rebuilt chunks are checked against the address they were meant to have before anything is written, so recovery can fail loudly but cannot produce a wrong file. When it happens, export says so:
+
+```
+9f86d0…  1 file(s), 499712 bytes  ->  ./etherchunk-export/9f86d0…
+          recovered 10 from parity, 1 from dispersed replicas
+```
+
+A successful export with a non-zero recovery count means the content is intact but the upload is decaying on the network — worth re-uploading before the parity runs out.

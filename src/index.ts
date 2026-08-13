@@ -3,7 +3,7 @@ import { Binary, Types } from 'cafe-utility'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { argv, env, loadEnvFile } from 'node:process'
-import { benchSign, benchSplit, deleteFile, list, migrate, status, upload } from './commands.js'
+import { benchSign, benchSplit, deleteFile, exportAll, list, migrate, status, upload } from './commands.js'
 
 main()
 
@@ -71,6 +71,47 @@ async function main() {
         })
         progress.done()
         console.log(Binary.uint8ArrayToHex(rootHash))
+    } else if (command === 'export') {
+        const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
+        const exportArgs = argv.slice(3)
+        const parallelism = parseIntFlag(exportArgs, '--parallelism') ?? parseInt(env.ETHERCHUNK_PARALLELISM ?? '32')
+        // Downloads are GET /chunks/<address> on the same endpoint uploads POST to, so the
+        // upload URL already points at the right place; ETHERCHUNK_DOWNLOAD_URL is only needed
+        // to read the content back from a different node or gateway than it was pushed to.
+        const downloadUrl = env.ETHERCHUNK_DOWNLOAD_URL ?? Types.asString(env.ETHERCHUNK_UPLOAD_URL)
+        const outDir = resolve(findPath(exportArgs, '--parallelism') ?? 'etherchunk-export')
+        const results = await exportAll({
+            batchId,
+            stateDir,
+            outDir,
+            downloadUrl,
+            parallelism,
+            onProgress: (_reference, path, bytes) => process.stderr.write(`  ${maskPath(path)} — ${bytes} bytes\n`)
+        })
+        if (results.length === 0) {
+            console.log('Nothing to export — no uploads are tracked for this batch.')
+        }
+        for (const { rootHash, directory, files, recovered, error } of results) {
+            const hash = maskHash(Binary.uint8ArrayToHex(rootHash))
+            if (error) {
+                console.log(`${hash}  FAILED: ${error}`)
+            } else {
+                const bytes = files.reduce((total, file) => total + file.bytes, 0)
+                console.log(`${hash}  ${files.length} file(s), ${bytes} bytes  ->  ${maskPath(directory)}`)
+            }
+            // A repaired chunk means the content survived but the upload is decaying on the
+            // network, which is worth saying out loud even when the export succeeded.
+            const repairs = [
+                recovered.parity > 0 ? `${recovered.parity} from parity` : null,
+                recovered.replica > 0 ? `${recovered.replica} from dispersed replicas` : null
+            ].filter(Boolean)
+            if (repairs.length > 0) {
+                console.log(`${' '.repeat(hash.length)}  recovered ${repairs.join(', ')}`)
+            }
+        }
+        if (results.some(result => result.error)) {
+            process.exitCode = 1
+        }
     } else if (command === 'migrate') {
         const batchId = Binary.hexToUint8Array(Types.asHexString(env.ETHERCHUNK_BATCH_ID))
         const batchDepth = Types.asNumber(env.ETHERCHUNK_BATCH_DEPTH)
@@ -119,7 +160,7 @@ async function main() {
         })
         progress.done()
     } else {
-        throw new Error(`Unknown command: ${command}. Use status, list, upload, delete, migrate, bench:split, or bench:sign.`)
+        throw new Error(`Unknown command: ${command}. Use status, list, upload, export, delete, migrate, bench:split, or bench:sign.`)
     }
 }
 
@@ -132,6 +173,8 @@ Commands:
   upload <file|dir>    Upload a file or directory and print the manifest root hash
                        Options: --encrypt, --redundancy=<0-4>, --parallelism=<n>
   list                 List all tracked files and manifests
+  export [dir]         Download every tracked upload into <dir>/<root hash>/ (default: ./etherchunk-export)
+                       Options: --parallelism=<n>
   delete <root hash>   Delete a file or manifest by root hash, reclaiming its slots
   status               Show slot usage and most utilized bucket
   migrate              Migrate the slot map after a batch depth change
@@ -140,7 +183,8 @@ Commands:
 
 Configuration is read from environment variables (or a local .env file):
   ETHERCHUNK_UPLOAD_URL, ETHERCHUNK_SIGNER, ETHERCHUNK_BATCH_ID, ETHERCHUNK_BATCH_DEPTH,
-  ETHERCHUNK_REDUNDANCY_LEVEL, ETHERCHUNK_PARALLELISM, ETHERCHUNK_PRIVATE`)
+  ETHERCHUNK_REDUNDANCY_LEVEL, ETHERCHUNK_PARALLELISM, ETHERCHUNK_PRIVATE,
+  ETHERCHUNK_DOWNLOAD_URL (defaults to ETHERCHUNK_UPLOAD_URL)`)
 }
 
 // When ETHERCHUNK_PRIVATE=true, redact filenames and hashes from all output so

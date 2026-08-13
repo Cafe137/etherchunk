@@ -176,19 +176,32 @@ class GFMatrix {
     }
 }
 
-// Builds the encoding matrix (Vandermonde × inverse of top square) and caches parity rows.
-// This is the default matrix from klauspost/reedsolomon's buildMatrix function.
+// Builds the encoding matrix (Vandermonde × inverse of top square) and caches it.
+// This is the default matrix from klauspost/reedsolomon's buildMatrix function. Row i is the
+// combination of data shards that produces shard i, so the first dataShards rows are the
+// identity and the rest are the parity rows. Encoding needs only the parity rows; reconstruction
+// needs the rows of whichever shards survived, hence the whole matrix is what gets cached.
+const encodingMatrixCache = new Map<string, GFMatrix>()
+
+function getEncodingMatrix(dataShards: number, parityShards: number): GFMatrix {
+    const key = `${dataShards},${parityShards}`
+    let matrix = encodingMatrixCache.get(key)
+    if (!matrix) {
+        const vm = GFMatrix.vandermonde(dataShards + parityShards, dataShards)
+        const top = vm.subMatrix(0, 0, dataShards, dataShards)
+        matrix = vm.multiply(top.invert())
+        encodingMatrixCache.set(key, matrix)
+    }
+    return matrix
+}
+
 const parityRowsCache = new Map<string, number[][]>()
 
 function getParityRows(dataShards: number, parityShards: number): number[][] {
     const key = `${dataShards},${parityShards}`
     let rows = parityRowsCache.get(key)
     if (!rows) {
-        const totalShards = dataShards + parityShards
-        const vm = GFMatrix.vandermonde(totalShards, dataShards)
-        const top = vm.subMatrix(0, 0, dataShards, dataShards)
-        const topInv = top.invert()
-        const matrix = vm.multiply(topInv)
+        const matrix = getEncodingMatrix(dataShards, parityShards)
         rows = []
         for (let i = 0; i < parityShards; i++) {
             const row: number[] = []
@@ -221,6 +234,62 @@ export function rsEncode(data: Uint8Array[], parityCount: number): Uint8Array[] 
         }
         return parity
     })
+}
+
+// Rebuilds the missing data shards of one erasure batch from whatever survived.
+//
+// `shards` is indexed by shard position: 0..dataCount-1 are the data shards, the next
+// parityCount are the parity shards, and null marks one that could not be retrieved. Returns a
+// copy with the missing data shards filled in, or null when the batch is beyond repair — fewer
+// than dataCount shards survived, or the survivors disagree on length.
+//
+// Ported from klauspost/reedsolomon's Reconstruct: shard_i = matrix_i · data, so taking the
+// matrix rows of any dataCount survivors gives a square system whose inverse recovers the data
+// vector — and the data vector is the data shards themselves.
+export function rsReconstruct(
+    shards: Array<Uint8Array | null>,
+    dataCount: number,
+    parityCount: number
+): Array<Uint8Array | null> | null {
+    const missing: number[] = []
+    for (let i = 0; i < dataCount; i++) {
+        if (!shards[i]) missing.push(i)
+    }
+    if (missing.length === 0) return shards.slice()
+
+    const available: number[] = []
+    for (let i = 0; i < dataCount + parityCount && available.length < dataCount; i++) {
+        if (shards[i]) available.push(i)
+    }
+    if (available.length < dataCount) return null
+
+    // Reed-Solomon works column by column across equally sized shards; a survivor of a different
+    // length would silently shift every byte after it.
+    const shardSize = shards[available[0]]!.length
+    if (available.some(index => shards[index]!.length !== shardSize)) return null
+
+    const matrix = getEncodingMatrix(dataCount, parityCount)
+    const square = new GFMatrix(dataCount, dataCount)
+    for (let r = 0; r < dataCount; r++) {
+        for (let c = 0; c < dataCount; c++) {
+            square.set(r, c, matrix.get(available[r], c))
+        }
+    }
+    const decodeMatrix = square.invert()
+
+    const result = shards.slice()
+    for (const index of missing) {
+        const shard = new Uint8Array(shardSize)
+        for (let byte = 0; byte < shardSize; byte++) {
+            let value = 0
+            for (let k = 0; k < dataCount; k++) {
+                value ^= gfMul(decodeMatrix.get(index, k), shards[available[k]]![byte])
+            }
+            shard[byte] = value
+        }
+        result[index] = shard
+    }
+    return result
 }
 
 // Parity lookup tables ported from Bee's pkg/file/redundancy/level.go.

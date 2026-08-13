@@ -76,6 +76,21 @@ function replicaIds(rootAddress: Uint8Array, redundancyLevel: number): Uint8Arra
     return ids
 }
 
+// A SOC is id (32) || signature (65) || span (8) || payload, so the wrapped chunk body — span
+// included — starts here. Reading a replica means slicing this off and checking that what is left
+// hashes to the address that was wanted; that check subsumes verifying the signature, since a
+// forged replica cannot produce content-addressed bytes it does not have.
+export const SOC_HEADER_SIZE = 97
+
+/**
+ * The SOC addresses of every dispersed replica of a chunk, in the same order makeReplicas
+ * created them. Read side of makeReplicas / makeEncryptedReplicas: pass the address the replicas
+ * were built from — the plain BMT hash, or the encrypted address for an encrypted upload.
+ */
+export function replicaAddresses(chunkAddress: Uint8Array, redundancyLevel: number): Uint8Array[] {
+    return replicaIds(chunkAddress, redundancyLevel).map(id => socAddress(id, REPLICAS_OWNER))
+}
+
 /**
  * Builds the raw bytes for a signed SOC chunk that wraps `wrappedChunk`.
  *

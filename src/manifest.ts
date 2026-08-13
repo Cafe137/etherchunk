@@ -1,5 +1,7 @@
-import { Binary, Chunk, ChunkEntry, ChunkSplitter, Uint8ArrayReader } from 'cafe-utility'
+import { Binary, Chunk, ChunkSplitter, Uint8ArrayReader } from 'cafe-utility'
 import { randomBytes } from 'node:crypto'
+import { getMaxShards, makeErasureBatch, makeIntermediateChunkHandler } from './erasure.js'
+import { makeEncryptedReplicas, makeReplicas } from './soc.js'
 
 const ENCODER = new TextEncoder()
 const DECODER = new TextDecoder()
@@ -112,6 +114,34 @@ export class Fork {
             metadata = JSON.parse(DECODER.decode(reader.read(metadataLength)))
         }
         return new Fork(prefix, new MantarayNode({ selfAddress, metadata, path: prefix }))
+    }
+}
+
+export interface SaveOptions {
+    // Redundancy level of the upload the manifest belongs to. Applies to the trie exactly as it
+    // applies to file content: parity chunks inside every node that is more than one chunk wide,
+    // dispersed replicas for every node's root chunk.
+    redundancyLevel?: number
+    onReplica?: (address: Uint8Array, data: Uint8Array) => Promise<void>
+}
+
+// Each node in the trie is saved through its own splitter, so each one ends in a root chunk that no
+// parity can cover — the same position a file root is in, and the reason dispersed replicas exist.
+// Bee replicates every root its hash-trie writer produces (hashtrie.Sum puts replicas whenever the
+// level is not NONE), and a manifest node save is one such pipeline run, so replicating interior
+// nodes rather than only the manifest root is what matches it.
+async function saveReplicas(
+    rootChunk: Chunk,
+    level: number,
+    onReplica?: (address: Uint8Array, data: Uint8Array) => Promise<void>,
+    key?: Uint8Array
+): Promise<void> {
+    if (!onReplica || level === 0) {
+        return
+    }
+    const replicas = key ? makeEncryptedReplicas(rootChunk, key, level) : makeReplicas(rootChunk, level)
+    for (const replica of replicas) {
+        await onReplica(replica.address, replica.data)
     }
 }
 
@@ -284,24 +314,32 @@ export class MantarayNode {
      * the root Chunk so callers can create dispersed replicas.
      */
     async saveRecursively(
-        onChunk: (chunk: Chunk, key?: Uint8Array) => Promise<void>
+        onChunk: (chunk: Chunk, key?: Uint8Array) => Promise<void>,
+        options: SaveOptions = {}
     ): Promise<{ ref: Uint8Array; rootChunk: Chunk; encryptionKey?: Uint8Array }> {
         for (const fork of this.forks.values()) {
-            await fork.node.saveRecursively(onChunk)
+            await fork.node.saveRecursively(onChunk, options)
         }
-        return this.saveNode(onChunk)
+        return this.saveNode(onChunk, options)
     }
 
     private async saveNode(
-        onChunk: (chunk: Chunk, key?: Uint8Array) => Promise<void>
+        onChunk: (chunk: Chunk, key?: Uint8Array) => Promise<void>,
+        options: SaveOptions
     ): Promise<{ ref: Uint8Array; rootChunk: Chunk; encryptionKey?: Uint8Array }> {
-        const nodeOnBatch = async (batch: ChunkEntry[]): Promise<ChunkEntry[]> => {
-            for (const { chunk, key } of batch) {
-                await onChunk(chunk, key)
-            }
-            return []
-        }
-        const splitter = new ChunkSplitter(nodeOnBatch, undefined, this.encrypt)
+        const level = options.redundancyLevel ?? 0
+        // A manifest node is split by the same erasure-aware pipeline as file content, because Bee
+        // saves every Mantaray node through the redundancy-configured pipeline: api/dirs.go hands
+        // requestPipelineFactory(ctx, putter, encrypt, rLevel) to the loadsave that manifest writes
+        // go through. So a node wide enough to span several chunks carries parity references in its
+        // intermediate chunks, exactly as a file's tree does — without this a --redundancy upload
+        // had protected content under an unprotected trie.
+        const splitter = new ChunkSplitter(
+            makeErasureBatch(level, this.encrypt, onChunk),
+            getMaxShards(level, this.encrypt),
+            this.encrypt,
+            makeIntermediateChunkHandler(level)
+        )
         await splitter.append(await this.marshal())
         const rootChunk = await splitter.finalize()
         // 36.1.1: finalize() no longer calls onBatch for the root chunk — upload it explicitly.
@@ -309,10 +347,12 @@ export class MantarayNode {
             const { address, key: rootKey } = rootChunk.encryptedHash()
             await onChunk(rootChunk, rootKey)
             this.selfAddress = Binary.concatBytes(address, rootKey)
+            await saveReplicas(rootChunk, level, options.onReplica, rootKey)
             return { ref: this.selfAddress, rootChunk, encryptionKey: rootKey }
         }
         await onChunk(rootChunk)
         this.selfAddress = rootChunk.hash()
+        await saveReplicas(rootChunk, level, options.onReplica)
         return { ref: this.selfAddress, rootChunk }
     }
 
